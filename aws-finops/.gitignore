@@ -1,0 +1,13 @@
+.idea/
+.terraform/
+.terragrunt-cache/
+.vscode/
+.terraform.lock.hcl
+credentials.json
+.DS_Store
+certificate.crt
+private.key
+cert.pem
+key.pem
+terraform.plan
+.code-workspace
