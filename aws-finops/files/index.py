@@ -13,7 +13,7 @@ logger.setLevel(logging.INFO)
 
 keep_instances = ['IGNORE']
 keep_tag_key = os.environ['KEEP_TAG_KEY']
-dry_run = os.environ.get('DRY_RUN', 'true').lower() == 'true'
+dry_run = os.environ.get('DRY_RUN', 'true').lower() != 'false'
 from_address = os.environ['EMAIL_IDENTITY']
 to_address = os.environ['TO_ADDRESS']
 
