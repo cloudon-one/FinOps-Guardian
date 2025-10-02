@@ -35,7 +35,7 @@ variable "function_description" {
 variable "function_timeout" {
   type        = number
   description = "The amount of time your Lambda Function has to run in seconds"
-  default     = 60
+  default     = 300
 }
 
 variable "dry_run" {

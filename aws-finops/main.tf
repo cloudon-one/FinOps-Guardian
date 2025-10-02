@@ -9,14 +9,14 @@ module "lambda_function" {
   function_name = var.function_name
   description   = var.function_description
   handler       = "index.lambda_handler"
-  runtime       = "python3.9"
+  runtime       = "python3.11"
   publish       = true
   timeout       = var.function_timeout
 
   source_path = "files"
 
   attach_policy = true
-  policy        = "arn:aws:iam::aws:policy/AdministratorAccess"
+  policy        = aws_iam_policy.lambda_cleanup_policy.arn
 
   environment_variables = {
     CHECK_ALL_REGIONS = var.check_all_regions
