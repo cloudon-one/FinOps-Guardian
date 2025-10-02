@@ -7,6 +7,7 @@ A serverless solution to monitor and receive GCP recommendations across your org
 This system runs as a Cloud Function that periodically checks for various types of recommendations across your GCP organization or individual projects and sends notifications to Slack. It supports both organization-level and project-level scanning, making it flexible for different deployment scenarios.
 
 **Supported Resource Types:**
+
 - Virtual Machines (GCE) - Idle detection and right-sizing
 - Managed Instance Groups (MIG) - Machine type optimization
 - Cloud SQL instances - Idle detection and right-sizing
@@ -62,6 +63,7 @@ The solution consists of the following components:
 The system supports 10 recommendation types (all enabled by default, individually configurable):
 
 ### Idle Resource Detection
+
 - `google.compute.instance.IdleResourceRecommender` - Identifies idle VM instances
 - `google.compute.disk.IdleResourceRecommender` - Identifies idle persistent disks
 - `google.compute.image.IdleResourceRecommender` - Identifies unused custom images
@@ -69,17 +71,20 @@ The system supports 10 recommendation types (all enabled by default, individuall
 - `google.cloudsql.instance.IdleRecommender` - Identifies idle Cloud SQL instances
 
 ### Right-Sizing Recommendations
+
 - `google.compute.instance.MachineTypeRecommender` - VM instance right-sizing opportunities
 - `google.compute.instanceGroupManager.MachineTypeRecommender` - MIG machine type optimization
 - `google.cloudsql.instance.OverprovisionedRecommender` - Cloud SQL instance right-sizing
 
 ### Cost Optimization
+
 - `google.compute.commitment.UsageCommitmentRecommender` - Usage-based CUD recommendations
 - `google.cloudbilling.commitment.SpendBasedCommitmentRecommender` - Spend-based cost savings
 
 ## Features
 
 ### Core Capabilities
+
 - **Flexible Scanning Scope**: Support for both organization-level and project-level scanning
 - **Automated Detection**: 10 different types of cost optimization recommendations
 - **Smart Notifications**: Slack integration with detailed cost impact information
@@ -124,6 +129,7 @@ The system supports 10 recommendation types (all enabled by default, individuall
 The service account requires the following roles. Terraform automatically assigns these at either the organization or project level based on your `scan_scope` configuration:
 
 #### Core Recommender Roles
+
 - `roles/cloudasset.viewer` - Asset inventory access
 - `roles/recommender.computeViewer` - Compute recommendations
 - `roles/recommender.cloudsqlViewer` - Cloud SQL recommendations
@@ -134,6 +140,7 @@ The service account requires the following roles. Terraform automatically assign
 - `roles/storage.objectCreator` - For storing results (if needed)
 
 #### Additional Recommender Roles
+
 - `roles/recommender.productSuggestionViewer` - Product suggestions
 - `roles/recommender.firewallViewer` - Firewall recommendations
 - `roles/recommender.errorReportingViewer` - Error Reporting insights
@@ -144,6 +151,7 @@ The service account requires the following roles. Terraform automatically assign
 ### Required APIs
 
 The following APIs are automatically enabled by Terraform:
+
 - Cloud Asset API (`cloudasset.googleapis.com`)
 - Cloud Build API (`cloudbuild.googleapis.com`)
 - Cloud Functions API (`cloudfunctions.googleapis.com`)
@@ -160,6 +168,7 @@ The following APIs are automatically enabled by Terraform:
 The Cloud Function is configured via environment variables set by Terraform:
 
 #### Required Variables
+
 ```bash
 GCP_PROJECT                        # GCP project ID where function is deployed
 SCAN_SCOPE                         # "organization" or "project" (default: project)
@@ -168,6 +177,7 @@ MIN_COST_THRESHOLD                 # Minimum cost in USD to report (default: 0)
 ```
 
 #### Slack Notification (choose one method)
+
 ```bash
 # Method 1: Direct environment variable (default)
 USE_SECRET_MANAGER=false
@@ -179,6 +189,7 @@ SLACK_WEBHOOK_SECRET_NAME          # Secret Manager secret name
 ```
 
 #### Recommender Toggles (all default to true)
+
 ```bash
 IDLE_VM_RECOMMENDER_ENABLED        # VM idle resource detection
 IDLE_DISK_RECOMMENDER_ENABLED      # Disk idle resource detection
@@ -197,6 +208,7 @@ BILLING_USE_RECOMMENDER_ENABLED    # Billing optimization recommendations
 ### Quick Start
 
 1. **Clone the repository**:
+
 ```bash
 git clone https://github.com/yourusername/FinOps-Guardian.git
 cd FinOps-Guardian/gcp-finops
@@ -205,6 +217,7 @@ cd FinOps-Guardian/gcp-finops
 2. **Configure your deployment** by creating `terraform.tfvars`:
 
 **For Project-Level Scanning** (recommended for single projects):
+
 ```hcl
 gcp_project        = "your-project-id"
 gcp_region         = "us-central1"
@@ -221,6 +234,7 @@ idle_disk_recommender_enabled      = true
 ```
 
 **For Organization-Level Scanning** (for multi-project organizations):
+
 ```hcl
 gcp_project        = "your-project-id"
 gcp_region         = "us-central1"
@@ -233,6 +247,7 @@ job_timezone       = "America/New_York"
 ```
 
 3. **Configure Terraform backend** (edit `backend.tf`):
+
 ```hcl
 terraform {
   backend "gcs" {
@@ -243,6 +258,7 @@ terraform {
 ```
 
 4. **Deploy with Terraform**:
+
 ```bash
 # Create backend bucket
 gsutil mb -p your-project-id -l us-central1 gs://your-terraform-state-bucket
@@ -267,6 +283,7 @@ Terraform creates the following resources:
 ## Notifications
 
 Recommendations are sent to Slack with the following information:
+
 - GCP Project ID
 - Recommendation type
 - Recommended action
@@ -312,6 +329,7 @@ scripts/cloudfunctions/recommender-checker/
 To add a new recommender:
 
 1. **Create a new recommender class**:
+
 ```python
 # localpackage/recommender/your_category/your_recommender.py
 from ..recommender import Recommender
@@ -324,6 +342,7 @@ class YourRecommender(Recommender):
 ```
 
 2. **Register in factory** (`factory.py`):
+
 ```python
 from .your_category.your_recommender import YourRecommender
 
@@ -334,6 +353,7 @@ _RECOMMENDERS: Dict[str, Type[Recommender]] = {
 ```
 
 3. **Add Terraform variable** (`variables.tf`):
+
 ```hcl
 variable "your_recommender_enabled" {
   type        = bool
@@ -343,6 +363,7 @@ variable "your_recommender_enabled" {
 ```
 
 4. **Add to Cloud Function environment** (`main.tf`):
+
 ```hcl
 environment_variables = merge(
   {
@@ -376,6 +397,7 @@ See `TESTING.md` for detailed testing documentation.
 ## Terraform Variables
 
 ### Required Variables
+
 | Variable | Type | Description |
 |----------|------|-------------|
 | `gcp_project` | string | GCP project ID where resources will be deployed |
@@ -384,6 +406,7 @@ See `TESTING.md` for detailed testing documentation.
 | `slack_webhook_url` | string | Webhook URL for Slack notifications |
 
 ### Optional Variables
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `scan_scope` | string | `"project"` | Scan scope: `"organization"` or `"project"` |
@@ -394,6 +417,7 @@ See `TESTING.md` for detailed testing documentation.
 | `use_secret_manager` | bool | `false` | Use Secret Manager for webhook URL instead of env var |
 
 ### Recommender Toggles (all default to `true`)
+
 | Variable | Description |
 |----------|-------------|
 | `idle_vm_recommender_enabled` | Enable VM idle resource detection |
@@ -410,6 +434,7 @@ See `TESTING.md` for detailed testing documentation.
 ## Manual Testing
 
 ### Trigger Function Manually
+
 ```bash
 # Trigger via Pub/Sub
 gcloud pubsub topics publish organization-checker \
@@ -424,6 +449,7 @@ gcloud functions logs read org-checker \
 ```
 
 ### Query Cloud Logging
+
 ```bash
 # View structured logs
 gcloud logging read \
@@ -434,6 +460,7 @@ gcloud logging read \
 ```
 
 ### Check Scheduled Job
+
 ```bash
 # View scheduler configuration
 gcloud scheduler jobs describe org_checker_scheduler \
@@ -464,16 +491,19 @@ gcloud scheduler jobs run org_checker_scheduler \
 ## Troubleshooting
 
 ### Function Not Finding Recommendations
+
 - Verify IAM permissions at organization/project level
 - Check that resources exist in the scanned scope
 - Review `MIN_COST_THRESHOLD` setting (may be filtering out low-cost items)
 
 ### Slack Notifications Not Working
+
 - Verify webhook URL is correct
 - Test webhook manually with `curl`
 - Check function logs for HTTP errors
 
 ### Permission Denied Errors
+
 - Ensure service account has all required roles
 - For organization scanning, verify organization-level IAM bindings
 - For project scanning, verify project-level IAM bindings

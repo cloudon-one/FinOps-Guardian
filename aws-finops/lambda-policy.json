@@ -1,0 +1,110 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EC2ReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeRegions",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeAddresses",
+        "ec2:StopInstances",
+        "ec2:DeleteVolume",
+        "ec2:ReleaseAddress",
+        "ec2:UnmonitorInstances",
+        "ec2:CreateTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ELBReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DeleteLoadBalancer"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:StopDBInstance",
+        "rds:StopDBCluster"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EKSReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "eks:ListClusters",
+        "eks:DescribeCluster",
+        "eks:ListNodegroups",
+        "eks:DescribeNodegroup",
+        "eks:UpdateNodegroupConfig"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "KinesisReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "kinesis:ListStreams",
+        "kinesis:DeleteStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "MSKReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "kafka:ListClusters",
+        "kafka:DeleteCluster"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OpenSearchReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "es:ListDomainNames",
+        "es:DeleteDomain",
+        "es:DescribeDomain"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ConfigRead",
+      "Effect": "Allow",
+      "Action": [
+        "config:GetResourceConfigHistory",
+        "config:GetDiscoveredResourceCounts"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SESEmail",
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:GetIdentityVerificationAttributes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*"
+    }
+  ]
+}
