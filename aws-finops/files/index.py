@@ -670,7 +670,11 @@ def lambda_handler(event, context):
 
     try:
         # Execute all cleanup operations
-        stop_all_instances(regions)
+        # For each region, get instances to stop and call stop_instances
+        for region in regions:
+            # TODO: Replace the following line with actual logic to get instances to stop in the region
+            instances_to_stop = []  # e.g., get_instances_to_stop(region)
+            stop_instances(instances_to_stop, region)
         tag_instances(regions)
         unmonitor_all_instances(regions)
         release_unassociated_eip(regions)
