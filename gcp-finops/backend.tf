@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "finops-state-bucket"
+    bucket = "finsec-cloud-finops-state"
     prefix = "recommender/org-checker"
   }
 }

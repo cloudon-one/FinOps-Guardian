@@ -1,6 +1,17 @@
 variable "organization_id" {
   type        = string
-  description = "REQUIRED: GCP Organization ID"
+  default     = ""
+  description = "OPTIONAL: GCP Organization ID (required for organization-level scanning)"
+}
+
+variable "scan_scope" {
+  type        = string
+  default     = "project"
+  description = "OPTIONAL: Scan scope - 'organization' or 'project' (default: project)"
+  validation {
+    condition     = contains(["organization", "project"], var.scan_scope)
+    error_message = "scan_scope must be either 'organization' or 'project'"
+  }
 }
 
 variable "gcp_project" {
@@ -88,4 +99,22 @@ variable "billing_use_recommender_enabled" {
   type        = string
   default     = true
   description = "OPTIONAL: Option to enable Billing use Recommender"
+}
+
+variable "mig_rightsize_recommender_enabled" {
+  type        = string
+  default     = true
+  description = "OPTIONAL: Option to enable MIG machine type right-sizing Recommender"
+}
+
+variable "use_secret_manager" {
+  type        = bool
+  default     = false
+  description = "OPTIONAL: Use Secret Manager for Slack webhook URL instead of environment variable"
+}
+
+variable "min_cost_threshold" {
+  type        = number
+  default     = 0
+  description = "OPTIONAL: Minimum cost threshold for recommendations (skip recommendations below this value)"
 }
