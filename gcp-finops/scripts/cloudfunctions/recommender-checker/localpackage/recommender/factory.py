@@ -58,7 +58,7 @@ class RecommenderFactory:
             if is_enabled:
                 try:
                     # Instantiate recommender with required parameters
-                    recommender = recommender_class(recommender_id=key, asset_type="")
+                    recommender = recommender_class(recommender_id=key)
                     enabled_recommenders.append(recommender)
                     logger.info(
                         f"Enabled recommender: {recommender_class.__name__}",
