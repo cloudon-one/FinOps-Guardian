@@ -180,7 +180,7 @@ class Recommender:
         duration_str = str(duration).split(",")[0] if duration else "0"
         units = recommendation.primary_impact.cost_projection.cost.units
         nanos = recommendation.primary_impact.cost_projection.cost.nanos
-        cost = nanos * (-10**-9)
+        cost = nanos * (10**-9)
         total_cost = abs(units) + round(cost, 2) if cost else 0
 
         return CostImpact(
