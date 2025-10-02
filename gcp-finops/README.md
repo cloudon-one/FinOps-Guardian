@@ -1,18 +1,20 @@
-# GCP Organization Recommender
+# GCP FinOps Guardian
 
-A serverless solution to monitor and receive GCP recommendations across your organization. This system leverages Google Cloud's Recommender API to detect potential cost savings and optimization opportunities.
+A serverless solution to monitor and receive GCP recommendations across your organization or individual projects. This system leverages Google Cloud's Recommender API to detect potential cost savings and optimization opportunities with automated notifications to Slack.
 
 ## Overview
 
-This system runs as a Cloud Function that periodically checks for various types of recommendations across your GCP organization and sends notifications to Slack. It covers multiple resource types including:
+This system runs as a Cloud Function that periodically checks for various types of recommendations across your GCP organization or individual projects and sends notifications to Slack. It supports both organization-level and project-level scanning, making it flexible for different deployment scenarios.
 
-- Virtual Machines (GCE)
-- Cloud SQL instances
-- Disks
-- Images
-- IP addresses
-- Commitment usage
-- Billing optimizations
+**Supported Resource Types:**
+- Virtual Machines (GCE) - Idle detection and right-sizing
+- Managed Instance Groups (MIG) - Machine type optimization
+- Cloud SQL instances - Idle detection and right-sizing
+- Persistent Disks - Idle resource identification
+- Custom Images - Unused image detection
+- Static IP Addresses - Idle IP detection
+- Commitment usage - CUD recommendations
+- Billing optimizations - Cost-saving opportunities
 
 ## Architecture
 
@@ -31,145 +33,236 @@ The solution consists of the following components:
 1. **Service Account**:
    - Account ID: `organization-checker`
    - Assigned multiple IAM roles for accessing recommender services
-   - Organization-level permissions for comprehensive access
+   - Supports both organization-level and project-level permissions
 
 2. **Cloud Function**:
-   - Runtime: Python 3.9
+   - Runtime: Python 3.12
    - Memory: 512MB
-   - Timeout: 300 seconds
+   - Timeout: 300 seconds (5 minutes)
    - Triggered by Pub/Sub messages
+   - Structured logging to Cloud Logging with distributed tracing
+   - Factory pattern for dynamic recommender loading
 
 3. **Storage**:
-   - Location: EU
+   - GCS bucket for function source code
    - Uniform bucket level access enabled
-   - Used for function code storage
+   - Configurable location
 
 4. **Cloud Scheduler**:
-   - Configurable schedule
+   - Configurable cron schedule (default: daily at midnight)
    - Retries configured with exponential backoff
-   - Publishes to Pub/Sub topic
+   - Publishes to Pub/Sub topic for function triggering
+
+5. **Secret Manager** (Optional):
+   - Secure storage for Slack webhook URL
+   - Alternative to environment variable configuration
 
 ## Supported Recommenders
 
-The system supports the following recommendation types:
+The system supports 10 recommendation types (all enabled by default, individually configurable):
 
+### Idle Resource Detection
 - `google.compute.instance.IdleResourceRecommender` - Identifies idle VM instances
-- `google.compute.image.IdleResourceRecommender` - Identifies idle GCE custom images
-- `google.compute.address.IdleResourceRecommender` - Identifies idle IP addresses
-- `google.compute.disk.IdleResourceRecommender` - Identifies idle GCE disks
-- `google.cloudsql.instance.IdleRecommender` - Identifies idle SQL instances
-- `google.cloudsql.instance.OverprovisionedRecommender` - Identifies oversized SQL instances
-- `google.compute.instance.MachineTypeRecommender` - Identifies opportunities for VM right-sizing
-- `google.cloudbilling.commitment.SpendBasedCommitmentRecommender` - Provides spend-based cost savings recommendations
-- `google.compute.commitment.UsageCommitmentRecommender` - Provides usage-based cost savings recommendations
+- `google.compute.disk.IdleResourceRecommender` - Identifies idle persistent disks
+- `google.compute.image.IdleResourceRecommender` - Identifies unused custom images
+- `google.compute.address.IdleResourceRecommender` - Identifies idle static IP addresses
+- `google.cloudsql.instance.IdleRecommender` - Identifies idle Cloud SQL instances
+
+### Right-Sizing Recommendations
+- `google.compute.instance.MachineTypeRecommender` - VM instance right-sizing opportunities
+- `google.compute.instanceGroupManager.MachineTypeRecommender` - MIG machine type optimization
+- `google.cloudsql.instance.OverprovisionedRecommender` - Cloud SQL instance right-sizing
+
+### Cost Optimization
+- `google.compute.commitment.UsageCommitmentRecommender` - Usage-based CUD recommendations
+- `google.cloudbilling.commitment.SpendBasedCommitmentRecommender` - Spend-based cost savings
 
 ## Features
 
-The system can check for multiple types of recommendations:
+### Core Capabilities
+- **Flexible Scanning Scope**: Support for both organization-level and project-level scanning
+- **Automated Detection**: 10 different types of cost optimization recommendations
+- **Smart Notifications**: Slack integration with detailed cost impact information
+- **Configurable Filtering**: Minimum cost threshold to reduce noise
+- **Scheduled Execution**: Automated checks via Cloud Scheduler
+- **Structured Logging**: Full observability with Cloud Logging integration
+- **Factory Pattern**: Dynamic recommender loading based on configuration
+- **Security**: Optional Secret Manager integration for webhook credentials
+- **Retry Logic**: Exponential backoff for API resilience
+- **Comprehensive Testing**: 92% code coverage with pytest
+
+### Recommendation Categories
 
 - **Idle Resources**:
   - VM instances
   - Cloud SQL instances
-  - Disks
-  - Images
-  - IP addresses
+  - Persistent disks
+  - Custom images
+  - Static IP addresses
 
 - **Right-sizing**:
   - VM instances
+  - Managed Instance Groups (MIG)
   - Cloud SQL instances
 
 - **Cost Optimization**:
-  - Commitment usage recommendations
+  - Commitment usage recommendations (CUD)
   - Billing usage optimization
 
 ## Prerequisites
 
 ### Required Deployment Permissions
 
-The user/service account deploying this solution requires:
-- `roles/resourcemanager.organizationAdmin` - Organization Admin permission is required for Terraform execution
+**For Organization-Level Scanning:**
+- `roles/resourcemanager.organizationAdmin` - Required to grant organization-level IAM permissions
+
+**For Project-Level Scanning:**
+- `roles/owner` or equivalent project-level permissions to deploy Cloud Functions and configure IAM
 
 ### Required Service Account Permissions
 
-#### Mandatory Roles
-The following roles are required for the service account to collect recommendations at the organization level:
-- `roles/cloudasset.viewer`
-- `roles/recommender.computeViewer`
-- `roles/recommender.cloudsqlViewer`
-- `roles/recommender.cloudAssetInsightsViewer`
-- `roles/recommender.billingAccountCudViewer`
-- `roles/recommender.ucsViewer`
-- `roles/recommender.projectCudViewer`
+The service account requires the following roles. Terraform automatically assigns these at either the organization or project level based on your `scan_scope` configuration:
 
-#### Optional Roles
-Additional roles that may be needed depending on your use case:
-- `roles/recommender.productSuggestionViewer`
-- `roles/recommender.firewallViewer`
-- `roles/recommender.errorReportingViewer`
-- `roles/recommender.dataflowDiagnosticsViewer`
-- `roles/recommender.containerDiagnosisViewer`
-- `roles/recommender.iamViewer`
+#### Core Recommender Roles
+- `roles/cloudasset.viewer` - Asset inventory access
+- `roles/recommender.computeViewer` - Compute recommendations
+- `roles/recommender.cloudsqlViewer` - Cloud SQL recommendations
+- `roles/recommender.cloudAssetInsightsViewer` - Asset insights
+- `roles/recommender.billingAccountCudViewer` - Billing CUD recommendations
+- `roles/recommender.ucsViewer` - Unattended project recommendations
+- `roles/recommender.projectCudViewer` - Project-level CUD recommendations
+- `roles/storage.objectCreator` - For storing results (if needed)
+
+#### Additional Recommender Roles
+- `roles/recommender.productSuggestionViewer` - Product suggestions
+- `roles/recommender.firewallViewer` - Firewall recommendations
+- `roles/recommender.errorReportingViewer` - Error Reporting insights
+- `roles/recommender.dataflowDiagnosticsViewer` - Dataflow diagnostics
+- `roles/recommender.containerDiagnosisViewer` - GKE diagnostics
+- `roles/recommender.iamViewer` - IAM recommendations
 
 ### Required APIs
 
-The following APIs must be enabled in your project:
-- Cloud Asset API
-- Cloud Build API
-- Cloud Functions API
-- Cloud Scheduler API
-- Recommender API
-- Service Usage API
-- Cloud Resource Manager API
+The following APIs are automatically enabled by Terraform:
+- Cloud Asset API (`cloudasset.googleapis.com`)
+- Cloud Build API (`cloudbuild.googleapis.com`)
+- Cloud Functions API (`cloudfunctions.googleapis.com`)
+- Cloud Scheduler API (`cloudscheduler.googleapis.com`)
+- Recommender API (`recommender.googleapis.com`)
+- Service Usage API (`serviceusage.googleapis.com`)
+- Cloud Resource Manager API (`cloudresourcemanager.googleapis.com`)
+- Secret Manager API (`secretmanager.googleapis.com`) - Optional, if using Secret Manager
 
 ## Configuration
 
 ### Environment Variables
 
-The following environment variables control the system's behavior:
+The Cloud Function is configured via environment variables set by Terraform:
 
-```
-ORGANIZATION_ID                    - Your GCP organization ID
-SLACK_HOOK_URL                    - Webhook URL for Slack notifications
-IDLE_VM_RECOMMENDER_ENABLED       - Enable/disable VM idle checks
-IDLE_SQL_RECOMMENDER_ENABLED      - Enable/disable SQL idle checks
-IDLE_DISK_RECOMMENDER_ENABLED     - Enable/disable disk idle checks
-IDLE_IMAGE_RECOMMENDER_ENABLED    - Enable/disable image idle checks
-IDLE_IP_RECOMMENDER_ENABLED       - Enable/disable IP idle checks
-RIGHTSIZE_VM_RECOMMENDER_ENABLED  - Enable/disable VM right-sizing checks
-RIGHTSIZE_SQL_RECOMMENDER_ENABLED - Enable/disable SQL right-sizing checks
-COMMITMENT_USE_RECOMMENDER_ENABLED- Enable/disable commitment usage checks
-BILLING_USE_RECOMMENDER_ENABLED   - Enable/disable billing optimization checks
+#### Required Variables
+```bash
+GCP_PROJECT                        # GCP project ID where function is deployed
+SCAN_SCOPE                         # "organization" or "project" (default: project)
+ORGANIZATION_ID                    # Required if SCAN_SCOPE=organization
+MIN_COST_THRESHOLD                 # Minimum cost in USD to report (default: 0)
 ```
 
-### Service Account Permissions
+#### Slack Notification (choose one method)
+```bash
+# Method 1: Direct environment variable (default)
+USE_SECRET_MANAGER=false
+SLACK_HOOK_URL                     # Slack webhook URL
 
-The service account requires the following roles:
+# Method 2: Secret Manager (more secure)
+USE_SECRET_MANAGER=true
+SLACK_WEBHOOK_SECRET_NAME          # Secret Manager secret name
 ```
-roles/cloudasset.viewer
-roles/recommender.computeViewer
-roles/recommender.cloudsqlViewer
-roles/recommender.iamViewer
-roles/storage.objectCreator
-roles/recommender.cloudAssetInsightsViewer
-roles/recommender.billingAccountCudViewer
-roles/recommender.ucsViewer
-roles/recommender.projectCudViewer
-roles/recommender.productSuggestionViewer
-roles/recommender.firewallViewer
-roles/recommender.errorReportingViewer
-roles/recommender.dataflowDiagnosticsViewer
-roles/recommender.containerDiagnosisViewer
+
+#### Recommender Toggles (all default to true)
+```bash
+IDLE_VM_RECOMMENDER_ENABLED        # VM idle resource detection
+IDLE_DISK_RECOMMENDER_ENABLED      # Disk idle resource detection
+IDLE_IMAGE_RECOMMENDER_ENABLED     # Image idle resource detection
+IDLE_IP_RECOMMENDER_ENABLED        # IP address idle detection
+IDLE_SQL_RECOMMENDER_ENABLED       # Cloud SQL idle detection
+RIGHTSIZE_VM_RECOMMENDER_ENABLED   # VM right-sizing recommendations
+RIGHTSIZE_SQL_RECOMMENDER_ENABLED  # Cloud SQL right-sizing
+MIG_RIGHTSIZE_RECOMMENDER_ENABLED  # MIG machine type optimization
+COMMITMENT_USE_RECOMMENDER_ENABLED # CUD usage recommendations
+BILLING_USE_RECOMMENDER_ENABLED    # Billing optimization recommendations
 ```
 
 ## Deployment
 
-The system is deployed using Terraform. Key deployment resources:
+### Quick Start
 
-1. Service Account and IAM roles
-2. Cloud Storage bucket
-3. Cloud Function
-4. Pub/Sub topic
-5. Cloud Scheduler job
+1. **Clone the repository**:
+```bash
+git clone https://github.com/yourusername/FinOps-Guardian.git
+cd FinOps-Guardian/gcp-finops
+```
+
+2. **Configure your deployment** by creating `terraform.tfvars`:
+
+**For Project-Level Scanning** (recommended for single projects):
+```hcl
+gcp_project        = "your-project-id"
+gcp_region         = "us-central1"
+recommender_bucket = "your-project-recommender"
+scan_scope         = "project"
+slack_webhook_url  = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+job_schedule       = "0 0 * * *"  # Daily at midnight
+job_timezone       = "America/New_York"
+
+# All recommenders enabled by default (set to false to disable)
+idle_vm_recommender_enabled        = true
+idle_disk_recommender_enabled      = true
+# ... etc
+```
+
+**For Organization-Level Scanning** (for multi-project organizations):
+```hcl
+gcp_project        = "your-project-id"
+gcp_region         = "us-central1"
+recommender_bucket = "your-project-recommender"
+scan_scope         = "organization"
+organization_id    = "123456789012"
+slack_webhook_url  = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+job_schedule       = "0 0 * * *"
+job_timezone       = "America/New_York"
+```
+
+3. **Configure Terraform backend** (edit `backend.tf`):
+```hcl
+terraform {
+  backend "gcs" {
+    bucket = "your-terraform-state-bucket"
+    prefix = "recommender/org-checker"
+  }
+}
+```
+
+4. **Deploy with Terraform**:
+```bash
+# Create backend bucket
+gsutil mb -p your-project-id -l us-central1 gs://your-terraform-state-bucket
+
+# Initialize and deploy
+terraform init
+terraform plan
+terraform apply
+```
+
+### Deployed Resources
+
+Terraform creates the following resources:
+1. **Service Account** with appropriate IAM roles (org or project level)
+2. **Cloud Storage bucket** for function source code
+3. **Cloud Function** (Python 3.12) for recommendation checking
+4. **Pub/Sub topic** for function triggering
+5. **Cloud Scheduler** job for automated execution
+6. **Secret Manager** resources (if `use_secret_manager = true`)
+7. **API enablement** for all required services
 
 ## Notifications
 
@@ -186,57 +279,228 @@ Recommendations are sent to Slack with the following information:
 
 ### Code Structure
 
-- `main.py`: Contains the Cloud Function entry point and recommender initialization
-- `recommender.py`: Base class for recommendation handling and Slack notifications
-- Individual recommender classes for each resource type
+```
+scripts/cloudfunctions/recommender-checker/
+├── main.py                    # Cloud Function entry point
+├── requirements.txt           # Python dependencies
+└── localpackage/
+    └── recommender/
+        ├── __init__.py
+        ├── factory.py         # Factory pattern for dynamic loading
+        ├── models.py          # Data models (ProjectInfo, CostImpact)
+        ├── recommender.py     # Base Recommender class
+        ├── compute/
+        │   ├── idle_resource.py      # VM, Disk, Image, IP idle detection
+        │   ├── rightsize_resource.py # VM right-sizing
+        │   ├── mig_rightsize.py      # MIG machine type optimization
+        │   ├── comm_use.py           # Commitment usage
+        │   └── billing_use.py        # Billing optimization
+        └── cloudsql/
+            ├── idle_resource.py      # Cloud SQL idle detection
+            └── rightsize_resource.py # Cloud SQL right-sizing
+```
+
+### Key Design Patterns
+
+1. **Factory Pattern**: `factory.py` dynamically loads recommenders based on environment variables
+2. **Inheritance**: All recommenders extend base `Recommender` class with common `detect()` logic
+3. **Data Models**: Type-safe data classes in `models.py` for structured data
+4. **Dependency Injection**: Recommenders set their own IDs internally
 
 ### Adding New Recommenders
 
 To add a new recommender:
-1. Create a new class extending the base `Recommender` class
-2. Add appropriate environment variable in Terraform
-3. Add the initialization in `main.py`
+
+1. **Create a new recommender class**:
+```python
+# localpackage/recommender/your_category/your_recommender.py
+from ..recommender import Recommender
+
+class YourRecommender(Recommender):
+    def __init__(self):
+        recommender_id = "google.service.YourRecommenderType"
+        asset_type = "service.googleapis.com/ResourceType"
+        super().__init__(recommender_id, asset_type)
+```
+
+2. **Register in factory** (`factory.py`):
+```python
+from .your_category.your_recommender import YourRecommender
+
+_RECOMMENDERS: Dict[str, Type[Recommender]] = {
+    # ... existing recommenders
+    "YOUR_RECOMMENDER": YourRecommender,
+}
+```
+
+3. **Add Terraform variable** (`variables.tf`):
+```hcl
+variable "your_recommender_enabled" {
+  type        = bool
+  default     = true
+  description = "Enable Your Recommender"
+}
+```
+
+4. **Add to Cloud Function environment** (`main.tf`):
+```hcl
+environment_variables = merge(
+  {
+    # ... existing vars
+    YOUR_RECOMMENDER_ENABLED = var.your_recommender_enabled
+  },
+  # ...
+)
+```
+
+### Testing
+
+The project includes comprehensive test coverage (92%):
+
+```bash
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=localpackage --cov-report=html
+
+# Run specific test
+pytest tests/test_factory.py -v
+```
+
+See `TESTING.md` for detailed testing documentation.
 
 ## Terraform Variables
 
-Required variables:
-- `gcp_project`: The project ID where resources will be deployed
-- `gcp_region`: Region for resource deployment
-- `organization_id`: Your GCP organization ID
-- `slack_webhook_url`: Webhook URL for Slack notifications
-- `job_schedule`: Cloud Scheduler cron schedule
-- `job_timezone`: Timezone for the scheduler
-- `recommender_bucket`: Name for the Cloud Storage bucket
+### Required Variables
+| Variable | Type | Description |
+|----------|------|-------------|
+| `gcp_project` | string | GCP project ID where resources will be deployed |
+| `gcp_region` | string | Region for resource deployment (e.g., `us-central1`) |
+| `recommender_bucket` | string | Name for the Cloud Storage bucket |
+| `slack_webhook_url` | string | Webhook URL for Slack notifications |
 
-## Service Account Authorization
+### Optional Variables
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `scan_scope` | string | `"project"` | Scan scope: `"organization"` or `"project"` |
+| `organization_id` | string | `""` | GCP organization ID (required if `scan_scope="organization"`) |
+| `job_schedule` | string | `"0 0 * * *"` | Cron schedule (default: daily at midnight) |
+| `job_timezone` | string | `"America/New_York"` | Timezone for scheduler |
+| `min_cost_threshold` | number | `0` | Minimum cost in USD to report recommendations |
+| `use_secret_manager` | bool | `false` | Use Secret Manager for webhook URL instead of env var |
 
-To authorize the service account for a client GCP Organization:
+### Recommender Toggles (all default to `true`)
+| Variable | Description |
+|----------|-------------|
+| `idle_vm_recommender_enabled` | Enable VM idle resource detection |
+| `idle_disk_recommender_enabled` | Enable disk idle resource detection |
+| `idle_image_recommender_enabled` | Enable image idle resource detection |
+| `idle_ip_recommender_enabled` | Enable IP address idle detection |
+| `idle_sql_recommender_enabled` | Enable Cloud SQL idle detection |
+| `rightsize_vm_recommender_enabled` | Enable VM right-sizing recommendations |
+| `rightsize_sql_recommender_enabled` | Enable Cloud SQL right-sizing |
+| `mig_rightsize_recommender_enabled` | Enable MIG machine type optimization |
+| `commitment_use_recommender_enabled` | Enable CUD usage recommendations |
+| `billing_use_recommender_enabled` | Enable billing optimization recommendations |
 
+## Manual Testing
+
+### Trigger Function Manually
 ```bash
-# Set environment variables
-export CLIENT_ORG_ID="your-org-id"
-export PROJECT_ID="your-project-id"  # authorized service account project
+# Trigger via Pub/Sub
+gcloud pubsub topics publish organization-checker \
+  --project=your-project-id \
+  --message='{"test": "manual_trigger"}'
 
-# Add required roles for recommender SA
-gcloud organizations add-iam-policy-binding $CLIENT_ORG_ID \
-  --member="serviceAccount:organization-checker@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/recommender.cloudAssetInsightsViewer" \
-  --role="roles/recommender.computeViewer" \
-  --role="roles/recommender.cloudsqlViewer" \
-  --role="roles/recommender.billingAccountCudViewer" \
-  --role="roles/recommender.ucsViewer" \
-  --role="roles/recommender.projectCudViewer"
+# View logs
+gcloud functions logs read org-checker \
+  --region=your-region \
+  --project=your-project-id \
+  --limit=50
 ```
 
-## Work in Progress Features
+### Query Cloud Logging
+```bash
+# View structured logs
+gcloud logging read \
+  "resource.type=cloud_function AND resource.labels.function_name=org-checker" \
+  --project=your-project-id \
+  --limit=20 \
+  --format=json
+```
 
-The following features are currently under development:
-- Datastore collections to store recommendations - Simple NoSQL Document DB to collect and store recommendations
-- Resources filters per org_id, folder_id, project_id - Pre-defined search queries to filter recommendations
+### Check Scheduled Job
+```bash
+# View scheduler configuration
+gcloud scheduler jobs describe org_checker_scheduler \
+  --location=your-region \
+  --project=your-project-id
+
+# Manually trigger scheduler
+gcloud scheduler jobs run org_checker_scheduler \
+  --location=your-region \
+  --project=your-project-id
+```
+
+## Monitoring and Observability
+
+- **Cloud Logging**: All logs include execution_id, source location, and distributed trace IDs
+- **Cloud Monitoring**: Monitor function execution metrics, errors, and latency
+- **Slack Notifications**: Receive immediate alerts for cost-saving recommendations
+- **Structured Logs**: Filter by severity, recommender type, or execution ID
+
+## Security Best Practices
+
+1. **Secret Management**: Use Secret Manager for sensitive credentials in production
+2. **IAM Least Privilege**: Only grant necessary recommender viewer roles
+3. **Network Security**: Function runs in Google-managed environment
+4. **Audit Logging**: All API calls logged to Cloud Audit Logs
+5. **No Hardcoded Credentials**: All secrets via environment variables or Secret Manager
+
+## Troubleshooting
+
+### Function Not Finding Recommendations
+- Verify IAM permissions at organization/project level
+- Check that resources exist in the scanned scope
+- Review `MIN_COST_THRESHOLD` setting (may be filtering out low-cost items)
+
+### Slack Notifications Not Working
+- Verify webhook URL is correct
+- Test webhook manually with `curl`
+- Check function logs for HTTP errors
+
+### Permission Denied Errors
+- Ensure service account has all required roles
+- For organization scanning, verify organization-level IAM bindings
+- For project scanning, verify project-level IAM bindings
+
+## Roadmap
+
+- [ ] Multi-channel notifications (Email, PagerDuty, etc.)
+- [ ] Recommendation history tracking in BigQuery
+- [ ] Dashboard for visualization (Data Studio/Looker)
+- [ ] Automatic remediation workflows
+- [ ] Cost trend analysis
+- [ ] Custom recommendation filters
 
 ## Contributing
 
-When contributing to this project:
-1. Ensure all new recommenders follow the existing pattern
-2. Update documentation for any new features
-3. Test thoroughly before submitting changes
+Contributions are welcome! Please:
+
+1. **Follow existing patterns**: Use factory pattern for new recommenders
+2. **Write tests**: Maintain 80%+ code coverage
+3. **Update documentation**: README, TESTING.md, and inline comments
+4. **Use structured logging**: Include proper metadata in log messages
+5. **Test thoroughly**: Verify in both org and project scopes
+
+## License
+
+See LICENSE file for details.
+
+## Support
+
+For issues and feature requests, please open a GitHub issue.

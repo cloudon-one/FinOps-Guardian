@@ -32,3 +32,15 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+.claude
+CLAUDE.md
+gcp-finops/scripts/cloudfunctions/recommender-checker/TESTING.md
+gcp-finops/IMPROVEMENTS.md
+gcp-finops/scripts/cloudfunctions/recommender-checker/pytest.ini
+*__pycache__/
+*.pyc
+**/tests/*
+gcp-finops/backend.tf
+gcp-finops/.terraform.lock.hcl
+gcp-finops/tfplan
+gcp-finops/SUMMARY.md

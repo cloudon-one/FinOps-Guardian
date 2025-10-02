@@ -1,56 +1,86 @@
-import os
-from localpackage.recommender.compute.idle_resource import VMIdleResourceRecommender
-from localpackage.recommender.compute.idle_resource import DiskIdleResourceRecommender
-from localpackage.recommender.compute.idle_resource import ImageIdleResourceRecommender
-from localpackage.recommender.compute.idle_resource import IpIdleResourceRecommender
-from localpackage.recommender.compute.rightsize_resource import VMRightSizeResourceRecommender
+"""Cloud Function entry point for GCP Organization Recommender.
 
-from localpackage.recommender.compute.comm_use import CommUseRecommender
-from localpackage.recommender.compute.billing_use import BillingUseRecommender
+This function is triggered by Pub/Sub messages and runs enabled recommenders
+to detect cost optimization opportunities across the GCP organization.
+"""
 
-from localpackage.recommender.cloudsql.idle_resource import CloudSQLIdleResourceRecommender
-from localpackage.recommender.cloudsql.rightsize_resource import CloudSQLRightSizeResourceRecommender
+import logging
+from typing import Any
+
+from google.cloud import logging as cloud_logging
+from localpackage.recommender.factory import RecommenderFactory
+
+# Setup Cloud Logging
+try:
+    client = cloud_logging.Client()
+    client.setup_logging()
+except Exception:
+    # Fallback to standard logging if Cloud Logging is not available
+    pass
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
-def check_recommender(_event, context):
-    print(
-        f"This Function was triggered by messageId {context.event_id} published at {context.timestamp}"
+def check_recommender(_event: Any, context: Any) -> None:
+    """Main Cloud Function entry point.
+
+    Args:
+        _event: Event payload (not used)
+        context: Event context with metadata
+
+    Raises:
+        Exception: If critical error occurs during execution
+    """
+    logger.info(
+        "Cloud Function triggered",
+        extra={
+            "event_id": context.event_id,
+            "timestamp": context.timestamp
+        }
     )
 
-    # Cloud SQL recommenders
-    if os.environ.get("IDLE_SQL_RECOMMENDER_ENABLED", "false") == "true":
-        idle_sql_recommender = CloudSQLIdleResourceRecommender()
-        idle_sql_recommender.detect()
+    try:
+        # Get all enabled recommenders using factory pattern
+        recommenders = RecommenderFactory.get_enabled_recommenders()
 
-    if os.environ.get("RIGHTSIZE_SQL_RECOMMENDER_ENABLED", "false") == "true":
-        rightsize_resource = CloudSQLRightSizeResourceRecommender()
-        rightsize_resource.detect()
+        if not recommenders:
+            logger.warning("No recommenders enabled - check environment variables")
+            return
 
-    # GCE recommenders
-    if os.environ.get("IDLE_DISK_RECOMMENDER_ENABLED", "false") == "true":
-        idle_disk_recommender = DiskIdleResourceRecommender()
-        idle_disk_recommender.detect()
+        # Execute all enabled recommenders
+        total_success = 0
+        total_failed = 0
 
-    if os.environ.get('IDLE_IMAGE_RECOMMENDER_ENABLED', "false") == 'true':
-        idle_image_recommender = ImageIdleResourceRecommender()
-        idle_image_recommender.detect()
+        for recommender in recommenders:
+            try:
+                logger.info(
+                    f"Executing {recommender.__class__.__name__}",
+                    extra={"recommender": recommender.__class__.__name__}
+                )
+                recommender.detect()
+                total_success += 1
+            except Exception as e:
+                total_failed += 1
+                logger.error(
+                    f"Error executing {recommender.__class__.__name__}: {e}",
+                    extra={"recommender": recommender.__class__.__name__},
+                    exc_info=True
+                )
+                # Continue with next recommender instead of failing completely
 
-    if os.environ.get("IDLE_IP_RECOMMENDER_ENABLED", "false") == "true":
-        idle_ip_recommender = IpIdleResourceRecommender()
-        idle_ip_recommender.detect()
+        logger.info(
+            "Recommendation check completed",
+            extra={
+                "total_recommenders": len(recommenders),
+                "successful": total_success,
+                "failed": total_failed
+            }
+        )
 
-    if os.environ.get("IDLE_VM_RECOMMENDER_ENABLED", "false") == "true":
-        idle_vm_recommender = VMIdleResourceRecommender()
-        idle_vm_recommender.detect()
-
-    if os.environ.get("RIGHTSIZE_VM_RECOMMENDER_ENABLED", "false") == "true":
-        rightsize_resource = VMRightSizeResourceRecommender()
-        rightsize_resource.detect()
-
-    if os.environ.get("COMMITMENT_USE_RECOMMENDER_ENABLED", "false") == "true":
-        commuserecommender = CommUseRecommender()
-        commuserecommender.detect()
-
-    if os.environ.get("BILLING_USE_RECOMMENDER_ENABLED", "false") == "true":
-        billinguserecommender = BillingUseRecommender()
-        billinguserecommender.detect()
+    except Exception as e:
+        logger.error(
+            f"Critical error in check_recommender: {e}",
+            exc_info=True
+        )
+        raise
