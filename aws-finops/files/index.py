@@ -2,8 +2,12 @@ import boto3
 import json
 import os
 import logging
+import re
+import time
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Callable
+from botocore.exceptions import ClientError
 
 from send_mail import send_email
 
@@ -11,20 +15,132 @@ from send_mail import send_email
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-keep_instances = ['IGNORE']
-keep_tag_key = os.environ['KEEP_TAG_KEY']
-dry_run = os.environ.get('DRY_RUN', 'true').lower() == 'true'
-from_address = os.environ['EMAIL_IDENTITY']
-to_address = os.environ['TO_ADDRESS']
 
-USED_REGIONS = [
+def validate_email(email: str) -> bool:
+    """Validate email address format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+
+def get_validated_env(key: str, default: Optional[str] = None, required: bool = True) -> str:
+    """Get and validate environment variable
+
+    :param key: Environment variable name
+    :param default: Default value if not set
+    :param required: Whether variable is required
+    :return: Environment variable value
+    :raises: ValueError if required variable is missing or invalid
+    """
+    value = os.environ.get(key, default)
+
+    if required and not value:
+        raise ValueError(f"Required environment variable '{key}' is not set")
+
+    # Validate specific environment variables
+    if key in ['EMAIL_IDENTITY', 'TO_ADDRESS'] and value:
+        if not validate_email(value):
+            raise ValueError(f"Invalid email format for '{key}': {value}")
+
+    if key == 'DRY_RUN' and value:
+        if value.lower() not in ['true', 'false']:
+            raise ValueError(f"DRY_RUN must be 'true' or 'false', got: {value}")
+
+    if key == 'CHECK_ALL_REGIONS' and value:
+        if value.lower() not in ['true', 'false']:
+            raise ValueError(f"CHECK_ALL_REGIONS must be 'true' or 'false', got: {value}")
+
+    return value
+
+
+def retry_with_backoff(max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+    """Decorator to retry function with exponential backoff
+
+    :param max_retries: Maximum number of retry attempts
+    :param initial_delay: Initial delay in seconds
+    :param backoff_factor: Multiplier for delay on each retry
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except ClientError as e:
+                    error_code = e.response.get('Error', {}).get('Code', '')
+                    last_exception = e
+
+                    # Don't retry on non-retryable errors
+                    if error_code in ['ValidationException', 'InvalidParameterException', 'AccessDenied']:
+                        logger.error(f"{func.__name__} failed with non-retryable error: {error_code}")
+                        raise
+
+                    # Throttling errors - retry with backoff
+                    if error_code in ['Throttling', 'TooManyRequestsException', 'RequestLimitExceeded']:
+                        if attempt < max_retries:
+                            logger.warning(f"{func.__name__} throttled, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(delay)
+                            delay *= backoff_factor
+                            continue
+                        else:
+                            logger.error(f"{func.__name__} failed after {max_retries} retries: {str(e)}")
+                            raise
+
+                    # Other client errors - retry with backoff
+                    if attempt < max_retries:
+                        logger.warning(f"{func.__name__} failed, retrying in {delay}s (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        logger.error(f"{func.__name__} failed after {max_retries} retries: {str(e)}")
+                        raise
+
+                except Exception as e:
+                    logger.error(f"{func.__name__} failed with unexpected error: {str(e)}")
+                    raise
+
+            if last_exception:
+                raise last_exception
+
+        return wrapper
+    return decorator
+
+
+# Validate and load environment variables
+try:
+    keep_instances = ['IGNORE']
+    keep_tag_key = get_validated_env('KEEP_TAG_KEY', default='auto-deletion', required=False)
+    dry_run = get_validated_env('DRY_RUN', default='true', required=False).lower() == 'true'
+    from_address = get_validated_env('EMAIL_IDENTITY', required=True)
+    to_address = get_validated_env('TO_ADDRESS', required=True)
+
+    logger.info(f"Configuration loaded - DRY_RUN: {dry_run}, KEEP_TAG_KEY: {keep_tag_key}")
+
+except ValueError as e:
+    logger.error(f"Configuration error: {str(e)}")
+    raise
+
+# Default regions if not specified
+DEFAULT_REGIONS = [
     'us-east-1',
     'us-east-2',
     'us-west-1',
     'us-west-2',
+    'eu-north-1',     # Added - Lambda deployment region
     'eu-central-1',
     'eu-west-1'
 ]
+
+# Load regions from environment or use defaults
+REGIONS_ENV = get_validated_env('REGIONS', default='', required=False)
+if REGIONS_ENV:
+    USED_REGIONS = [r.strip() for r in REGIONS_ENV.split(',') if r.strip()]
+    logger.info(f"Using custom regions from environment: {USED_REGIONS}")
+else:
+    USED_REGIONS = DEFAULT_REGIONS
+    logger.info(f"Using default regions: {USED_REGIONS}")
 
 deleted_resources = []
 skip_delete_resources = []

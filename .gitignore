@@ -44,3 +44,11 @@ gcp-finops/backend.tf
 gcp-finops/.terraform.lock.hcl
 gcp-finops/tfplan
 gcp-finops/SUMMARY.md
+aws-finops/DEPLOYMENT.md
+aws-finops/test-response.json
+aws-finops/P1-IMPROVEMENTS.md
+aws-finops/lambda-function-p1.zip
+aws-finops/lambda-function-regions-fix.zip
+aws-finops/p1-test-response.json
+aws-finops/region-test-response.json
+aws-finops/response-fixed.json

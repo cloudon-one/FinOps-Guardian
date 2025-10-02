@@ -9,7 +9,7 @@ module "lambda_function" {
   function_name = var.function_name
   description   = var.function_description
   handler       = "index.lambda_handler"
-  runtime       = "python3.11"
+  runtime       = "python3.12"
   publish       = true
   timeout       = var.function_timeout
 
@@ -32,6 +32,11 @@ module "lambda_function" {
       source_arn = aws_cloudwatch_event_rule.nightly.arn
     }
   }
+
+  dead_letter_target_arn = aws_sqs_queue.lambda_dlq.arn
+
+  # Attach policy for DLQ access
+  attach_dead_letter_policy = true
 }
 
 ##################################
