@@ -71,6 +71,7 @@ A serverless solution that periodically checks for GCP recommendations using Goo
 4. Cloud Storage
    - Stores function code (Terraform deploys code to bucket)
    - Uniform bucket-level access enabled
+   - Versioning and lifecycle rules for code archives
 
 5. Secret Manager (Optional)
    - Secure storage for Slack webhook URL
@@ -258,9 +259,9 @@ An automated solution designed to identify and remove unused AWS resources acros
 
 - **Enterprise Monitoring & Reliability**
   - CloudWatch alarms for execution failures and throttling
-  - Dead Letter Queue (DLQ) for failed invocations
-  - SNS notifications for alarms
-  - Python 3.12 runtime with retry logic
+  - Dead Letter Queue (DLQ) with encryption for failed invocations
+  - Optional SNS notifications for alarms (via `sns_topic_arn` variable)
+  - Python 3.12 runtime with retry logic and exponential backoff
 
 - **Security Best Practices**
   - Least-privilege IAM policy (replaced AdministratorAccess)
@@ -273,14 +274,15 @@ An automated solution designed to identify and remove unused AWS resources acros
 
 - **Email Notifications**
   - Comprehensive summary via SES
-  - Fixed sender address (aws@finsec.cloud)
+  - Configurable sender address and SES region
   - Detailed deletion/skip/error reports
 
 - **Safety Features**
   - Dry Run Mode: Evaluate actions without deleting
-  - Tag-Based Preservation: Skip tagged resources
+  - Tag-Based Preservation: Skip tagged resources (configurable key and value)
   - Spot Instance Protection: Excludes spot instances
-  - Concurrent processing with error handling
+  - Thread-safe concurrent processing with boto3 paginators
+  - State filtering for MSK/OpenSearch (skips clusters in transitional states)
 
 ### 2.2 Architecture
 
@@ -299,16 +301,16 @@ An automated solution designed to identify and remove unused AWS resources acros
 3. **CloudWatch Alarms & Monitoring**
    - Lambda execution failure alarms
    - Throttling detection alarms
-   - SNS notifications for alerts
+   - Optional SNS notifications for alerts (via `sns_topic_arn`)
    - Comprehensive CloudWatch Logs
 
 4. **Dead Letter Queue (DLQ)**
-   - SQS DLQ for failed Lambda invocations
+   - Encrypted SQS DLQ for failed Lambda invocations
    - Captures failures for investigation
    - Prevents lost execution data
 
 5. **SES (Simple Email Service)**
-   - Email notifications with aws@finsec.cloud sender
+   - Email notifications with configurable sender and SES region
    - Detailed reports: deleted, skipped, errors
    - Requires verified email identity
 
@@ -320,7 +322,7 @@ An automated solution designed to identify and remove unused AWS resources acros
 ### 2.3 Prerequisites
 
 - AWS Account with appropriate IAM permissions for Terraform deployment
-- Terraform installed (version 1.0+)
+- Terraform installed (version 1.3+)
 - Python 3.12 runtime support in Lambda
 - Configured AWS Credentials (e.g., via `~/.aws/credentials` or environment variables)
 - SES verified email identity for notifications
@@ -331,10 +333,12 @@ An automated solution designed to identify and remove unused AWS resources acros
 
 ```bash
 CHECK_ALL_REGIONS="false"                # or "true" to scan all AWS regions
-KEEP_TAG_KEY="auto-deletion"             # resources with this key are preserved
+KEEP_TAG_KEY="auto-deletion"             # tag key for resource preservation
+KEEP_TAG_VALUE="skip-resource"           # tag value for resource preservation
 DRY_RUN="true"                           # set to "false" for actual deletions
 EMAIL_IDENTITY="aws@finsec.cloud"        # SES verified sender email
 TO_ADDRESS="notifications@domain.com"    # recipient email address
+SES_REGION="us-east-1"                   # AWS region where SES identity is verified
 ```
 
 **Default AWS Regions:**
@@ -370,6 +374,7 @@ TO_ADDRESS="notifications@domain.com"    # recipient email address
 **Load Balancers**
 
 - Identifies and removes empty classic load balancers
+- Tag-based preservation support
 - Error handling and reporting
 
 **RDS (Instances & Clusters)**
@@ -392,12 +397,14 @@ TO_ADDRESS="notifications@domain.com"    # recipient email address
 
 **MSK Clusters**
 
-- Removes MSK clusters
+- Removes MSK clusters in ACTIVE state only
+- Skips clusters in transitional states (CREATING, UPDATING, DELETING)
 - Error handling
 
 **OpenSearch Domains**
 
 - Deletes unused domains
+- Skips domains in Processing or Deleting state
 - Supports dry run mode
 
 **Resource Tagging**
@@ -426,7 +433,9 @@ keep_tag_key      = { "auto-deletion" = "skip-resource" }
 dry_run           = true
 email_identity    = "aws@finsec.cloud"
 to_address        = "notifications@domain.com"
+ses_region        = "us-east-1"
 event_cron        = "cron(0 20 * * ? *)"  # 8 PM GMT
+sns_topic_arn     = ""                     # Optional: set to SNS topic ARN for alarm notifications
 ```
 
 2. **Run Terraform to deploy:**
@@ -441,10 +450,9 @@ terraform apply
 **Deployed Resources:**
 
 - Lambda function (Python 3.12) with least-privilege IAM policy
-- CloudWatch Event rule for scheduling
-- SQS Dead Letter Queue for failed invocations
-- CloudWatch alarms for monitoring
-- SNS topic for alarm notifications
+- EventBridge rule for scheduling
+- Encrypted SQS Dead Letter Queue for failed invocations
+- CloudWatch alarms for monitoring (with optional SNS notifications)
 - SES email identity verification
 
 ### 2.8 Monitoring & Observability
@@ -453,7 +461,8 @@ terraform apply
 
 - Lambda execution failures
 - API throttling detection
-- SNS notifications for critical issues
+- Duration approaching timeout (90% threshold)
+- Optional SNS notifications (configure `sns_topic_arn`)
 
 **CloudWatch Logs:**
 
@@ -509,7 +518,7 @@ terraform apply
 ### Modern Runtime & Architecture
 
 - **GCP**: Python 3.12 runtime, factory pattern for dynamic loading, 92% test coverage
-- **AWS**: Python 3.12 runtime, modular cleanup functions, retry logic with exponential backoff
+- **AWS**: Python 3.12 runtime, thread-safe resource tracking, retry logic with exponential backoff, boto3 paginators
 
 ### Serverless & Scheduled
 
@@ -524,17 +533,17 @@ terraform apply
 ### Security & Reliability
 
 - **GCP**: Optional Secret Manager for credentials, least-privilege IAM roles, project or organization-level scanning
-- **AWS**: Least-privilege IAM policy (no AdministratorAccess), CloudWatch alarms, Dead Letter Queue for failures
+- **AWS**: Least-privilege IAM policy (no AdministratorAccess), CloudWatch alarms with optional SNS, encrypted Dead Letter Queue for failures
 
 ### Safety & Control
 
 - **GCP**: Granular control via environment variables, 10 individual recommender toggles, min cost threshold
-- **AWS**: Dry run mode, tag-based preservation, spot instance protection, concurrent processing with error handling
+- **AWS**: Dry run mode, tag-based preservation (configurable key/value), spot instance protection, thread-safe concurrent processing with state filtering
 
 ### Monitoring & Observability
 
 - **GCP**: Structured Cloud Logging with distributed tracing, Cloud Monitoring metrics
-- **AWS**: CloudWatch alarms for failures/throttling, SNS notifications, comprehensive logs
+- **AWS**: CloudWatch alarms for failures/throttling, optional SNS notifications, comprehensive logs
 
 ## 4. Getting Started
 
@@ -548,14 +557,14 @@ terraform apply
 **GCP:**
 
 - GCP Organization or Project access
-- Terraform 1.0+
+- Terraform 1.3+ (Google provider ~> 5.0)
 - Python 3.12
 - Slack webhook URL
 
 **AWS:**
 
 - AWS Account with appropriate permissions
-- Terraform 1.0+
+- Terraform 1.3+ (AWS provider ~> 5.0)
 - Python 3.12
 - SES verified email identity
 
