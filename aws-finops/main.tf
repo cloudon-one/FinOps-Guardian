@@ -24,6 +24,7 @@ module "lambda_function" {
     DRY_RUN           = var.dry_run
     EMAIL_IDENTITY    = var.email_identity
     TO_ADDRESS        = var.to_address
+    SES_REGION        = var.ses_region
   }
 
   allowed_triggers = {
@@ -44,7 +45,7 @@ module "lambda_function" {
 ##################################
 resource "aws_cloudwatch_event_rule" "nightly" {
   name                = "RunNightly"
-  description         = "Stops all EC2 instances every night at 10 PM (8 PM GMT)"
+  description         = "Triggers AWS FinOps resource cleanup Lambda on schedule"
   schedule_expression = var.event_cron
 }
 

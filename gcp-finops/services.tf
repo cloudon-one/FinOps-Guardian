@@ -7,7 +7,8 @@ locals {
     "recommender.googleapis.com",
     "serviceusage.googleapis.com",
     "cloudresourcemanager.googleapis.com",
-    "secretmanager.googleapis.com"
+    "secretmanager.googleapis.com",
+    "pubsub.googleapis.com"
   ])
 }
 

@@ -1,8 +1,12 @@
+import os
+
 import boto3
 import logging
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
+
+SES_REGION = os.environ.get('SES_REGION', 'us-east-1')
 
 
 def verify_email_identity(email_address):
@@ -12,7 +16,7 @@ def verify_email_identity(email_address):
     :return: Boolean indicating if email is verified
     """
     try:
-        ses_client = boto3.client('ses', region_name='us-east-1')
+        ses_client = boto3.client('ses', region_name=SES_REGION)
         response = ses_client.get_identity_verification_attributes(Identities=[email_address])
 
         verification_status = response.get('VerificationAttributes', {}).get(email_address, {}).get('VerificationStatus')
@@ -246,7 +250,7 @@ def send_html_email(from_address, to_address, subject, html_body):
     :param subject: Email subject
     :param html_body: HTML formatted email body
     """
-    ses_client = boto3.client('ses', region_name='us-east-1')
+    ses_client = boto3.client('ses', region_name=SES_REGION)
 
     try:
         response = ses_client.send_email(

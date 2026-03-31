@@ -62,10 +62,22 @@ data "archive_file" "recommender_checker_archive" {
 
 resource "google_storage_bucket" "org_recommender" {
   name                        = var.recommender_bucket
-  location                    = "EU"
+  location                    = var.bucket_location != "" ? var.bucket_location : var.gcp_region
   project                     = var.gcp_project
   uniform_bucket_level_access = true
-  force_destroy               = true
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      num_newer_versions = 5
+    }
+  }
 }
 resource "google_storage_bucket_object" "recommender_checker_object" {
   name   = "terraform/cloudfunctions/recommender-checker-${data.archive_file.recommender_checker_archive.output_md5}.zip"
@@ -155,7 +167,7 @@ resource "google_cloudfunctions_function" "recommender_checker_func" {
 resource "google_cloud_scheduler_job" "recommender_checker_scheduler" {
   project     = var.gcp_project
   region      = var.gcp_region
-  name        = "org_checker_scheduler"
+  name        = "org-checker-scheduler"
   description = "check Recommender for all GCP projects"
   schedule    = var.job_schedule
   time_zone   = var.job_timezone

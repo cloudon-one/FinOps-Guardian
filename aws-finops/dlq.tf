@@ -1,14 +1,15 @@
 # Dead Letter Queue for failed Lambda executions
 
 resource "aws_sqs_queue" "lambda_dlq" {
-  name                      = "${var.function_name}-dlq"
-  message_retention_seconds = 1209600  # 14 days
+  name                       = "${var.function_name}-dlq"
+  message_retention_seconds  = 1209600 # 14 days
   visibility_timeout_seconds = 300
+  sqs_managed_sse_enabled    = true
 
   tags = {
     Name        = "${var.function_name}-dlq"
     Purpose     = "Dead Letter Queue for failed Lambda executions"
-    Environment = "production"
+    Environment = var.environment
   }
 }
 
@@ -29,17 +30,5 @@ resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
     QueueName = aws_sqs_queue.lambda_dlq.name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
-}
-
-# Output DLQ ARN for reference
-output "dlq_arn" {
-  description = "ARN of the Dead Letter Queue"
-  value       = aws_sqs_queue.lambda_dlq.arn
-}
-
-output "dlq_url" {
-  description = "URL of the Dead Letter Queue"
-  value       = aws_sqs_queue.lambda_dlq.url
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }

@@ -15,9 +15,13 @@ variable "default_tags" {
   description = "Tags to apply across all resources handled by this provider"
   default = {
     Terraform = "True"
-    #Terraform_Cloud = "True"
-    #Owner           = "Daniel Vaknin"
   }
+}
+
+variable "environment" {
+  type        = string
+  description = "Environment name for resource tagging"
+  default     = "production"
 }
 
 variable "function_name" {
@@ -52,17 +56,9 @@ variable "check_all_regions" {
 
 variable "keep_tag_key" {
   type        = map(string)
-  description = "Key of the tag to configure as resoruces to keep"
+  description = "Key of the tag to configure as resources to keep"
   default = {
-      "auto-deletion" = "skip-resource"
-  }
-}
-
-variable "ignore" {
-  type        = map(string)
-  description = "Key of the tag to configure as resoruces to skip"
-  default = {
-    spotinst = "*",
+    "auto-deletion" = "skip-resource"
   }
 }
 
@@ -80,12 +76,26 @@ variable "iam_policy" {
 
 variable "email_identity" {
   type        = string
-  description = "email identity to send mail"
+  sensitive   = true
+  description = "Email identity to send mail"
   default     = ""
 }
 
 variable "to_address" {
   type        = string
-  description = "to email address"
+  sensitive   = true
+  description = "Recipient email address"
+  default     = ""
+}
+
+variable "ses_region" {
+  type        = string
+  description = "AWS region where SES identities are verified"
+  default     = "us-east-1"
+}
+
+variable "sns_topic_arn" {
+  type        = string
+  description = "OPTIONAL: SNS topic ARN for CloudWatch alarm notifications. If empty, alarms will not send notifications."
   default     = ""
 }

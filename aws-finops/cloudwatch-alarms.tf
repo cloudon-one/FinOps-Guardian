@@ -17,8 +17,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
     FunctionName = module.lambda_function.lambda_function_name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }
 
 # Alarm for Lambda throttles
@@ -38,8 +37,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
     FunctionName = module.lambda_function.lambda_function_name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }
 
 # Alarm for Lambda duration (approaching timeout)
@@ -51,7 +49,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   namespace           = "AWS/Lambda"
   period              = "300"
   statistic           = "Maximum"
-  threshold           = "${var.function_timeout * 1000 * 0.9}"  # 90% of timeout in milliseconds
+  threshold           = "${var.function_timeout * 1000 * 0.9}" # 90% of timeout in milliseconds
   alarm_description   = "Alert when Lambda duration approaches timeout (90% threshold)"
   treat_missing_data  = "notBreaching"
 
@@ -59,8 +57,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
     FunctionName = module.lambda_function.lambda_function_name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }
 
 # Alarm for concurrent executions (if approaching account limit)
@@ -72,7 +69,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_concurrent_executions" {
   namespace           = "AWS/Lambda"
   period              = "60"
   statistic           = "Maximum"
-  threshold           = "50"  # Adjust based on your concurrent execution limit
+  threshold           = "50"
   alarm_description   = "Alert when concurrent executions are high"
   treat_missing_data  = "notBreaching"
 
@@ -80,8 +77,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_concurrent_executions" {
     FunctionName = module.lambda_function.lambda_function_name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }
 
 # Alarm for invocation failures (non-200 responses)
@@ -101,19 +97,5 @@ resource "aws_cloudwatch_metric_alarm" "lambda_invocation_failures" {
     FunctionName = module.lambda_function.lambda_function_name
   }
 
-  # Optional: Add SNS topic for notifications
-  # alarm_actions = [aws_sns_topic.alerts.arn]
-}
-
-# Output alarm ARNs
-output "alarm_arns" {
-  description = "ARNs of CloudWatch alarms"
-  value = {
-    errors                = aws_cloudwatch_metric_alarm.lambda_errors.arn
-    throttles             = aws_cloudwatch_metric_alarm.lambda_throttles.arn
-    duration              = aws_cloudwatch_metric_alarm.lambda_duration.arn
-    concurrent_executions = aws_cloudwatch_metric_alarm.lambda_concurrent_executions.arn
-    invocation_failures   = aws_cloudwatch_metric_alarm.lambda_invocation_failures.arn
-    dlq_messages          = aws_cloudwatch_metric_alarm.dlq_messages.arn
-  }
+  alarm_actions = var.sns_topic_arn != "" ? [var.sns_topic_arn] : []
 }

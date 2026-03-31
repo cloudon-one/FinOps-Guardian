@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from google.api_core import retry
 from google.api_core.exceptions import GoogleAPIError
-from google.cloud import asset_v1, logging as cloud_logging
+from google.cloud import asset_v1
 from google.cloud import recommender_v1
 from google.cloud import secretmanager
 from google.cloud.asset_v1.types.assets import ResourceSearchResult
@@ -14,14 +14,6 @@ from google.cloud.recommender_v1.types.recommendation import Recommendation
 from proto.marshal.collections.repeated import RepeatedComposite
 
 from .models import CostImpact, ProjectInfo, RecommendationSummary
-
-# Setup Cloud Logging
-try:
-    client = cloud_logging.Client()
-    client.setup_logging()
-except Exception:
-    # Fallback to standard logging if Cloud Logging is not available
-    pass
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -52,6 +44,8 @@ class Recommender:
         self.organization_id = os.environ.get("ORGANIZATION_ID", "")
         self.project_id = os.environ.get("GCP_PROJECT", "")
         self.min_cost_threshold = float(os.environ.get("MIN_COST_THRESHOLD", "0"))
+        self._cached_webhook_url: Optional[str] = None
+        self._webhook_url_resolved = False
 
         logger.info(
             f"Initialized {self.__class__.__name__}",
@@ -80,8 +74,10 @@ class Recommender:
         # Determine scope based on configuration
         if self.scan_scope == "project":
             scope = f"projects/{self.project_id}"
-        else:
+        elif self.scan_scope == "organization":
             scope = f"organizations/{self.organization_id}"
+        else:
+            raise ValueError(f"Invalid SCAN_SCOPE: '{self.scan_scope}'. Must be 'project' or 'organization'.")
 
         try:
             while True:
@@ -119,7 +115,6 @@ class Recommender:
             )
             raise
 
-    @retry.Retry(predicate=retry.if_transient_error, deadline=60.0)
     def _list_recommendations(
         self, project_number: str, zone: str
     ) -> RepeatedComposite:
@@ -181,7 +176,7 @@ class Recommender:
         units = recommendation.primary_impact.cost_projection.cost.units
         nanos = recommendation.primary_impact.cost_projection.cost.nanos
         cost = nanos * (10**-9)
-        total_cost = abs(units) + round(cost, 2) if cost else 0
+        total_cost = abs(units) + abs(round(cost, 2))
 
         return CostImpact(
             units=units,
@@ -202,7 +197,7 @@ class Recommender:
         Returns:
             SlackPayload dictionary
         """
-        _id = self.recommender_id.strip("google.")
+        _id = self.recommender_id.removeprefix("google.")
         cost_impact = self._calculate_cost_impact(recommendation)
 
         message = (
@@ -230,25 +225,33 @@ class Recommender:
     def _get_slack_webhook_url(self) -> Optional[str]:
         """Get Slack webhook URL from environment or Secret Manager.
 
+        Caches the resolved URL after first retrieval.
+
         Returns:
             Slack webhook URL or None
         """
+        if self._webhook_url_resolved:
+            return self._cached_webhook_url
+
         # Try Secret Manager first
         use_secret_manager = os.environ.get("USE_SECRET_MANAGER", "false").lower() == "true"
         if use_secret_manager:
             try:
                 secret_name = os.environ.get("SLACK_WEBHOOK_SECRET_NAME")
                 if secret_name:
-                    client = secretmanager.SecretManagerServiceClient()
-                    response = client.access_secret_version(name=secret_name)
-                    webhook_url = response.payload.data.decode("UTF-8")
+                    sm_client = secretmanager.SecretManagerServiceClient()
+                    response = sm_client.access_secret_version(name=secret_name)
+                    self._cached_webhook_url = response.payload.data.decode("UTF-8")
+                    self._webhook_url_resolved = True
                     logger.info("Retrieved Slack webhook from Secret Manager")
-                    return webhook_url
+                    return self._cached_webhook_url
             except Exception as e:
                 logger.warning(f"Failed to retrieve secret from Secret Manager: {e}")
 
         # Fallback to environment variable
-        return os.environ.get("SLACK_HOOK_URL")
+        self._cached_webhook_url = os.environ.get("SLACK_HOOK_URL")
+        self._webhook_url_resolved = True
+        return self._cached_webhook_url
 
     def _post_slack_message(self, payload: SlackPayload) -> None:
         """Post message to Slack.
@@ -262,7 +265,11 @@ class Recommender:
             return
 
         try:
-            req = Request(slack_hook_url, json.dumps(payload).encode("UTF-8"))
+            req = Request(
+                slack_hook_url,
+                json.dumps(payload).encode("UTF-8"),
+                headers={"Content-Type": "application/json"},
+            )
             with urlopen(req) as response:
                 response.read()
                 logger.info("Message posted to Slack successfully")
