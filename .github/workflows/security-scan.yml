@@ -28,7 +28,7 @@ jobs:
 
       - name: Run Security Scan
         id: scan
-        uses: cloudon-one/git-security-scanner-public@v3
+        uses: cloudon-one/git-security-scanner-public@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           fail_on_critical: true
