@@ -13,7 +13,10 @@ permissions:
   contents: read
   security-events: write
   pull-requests: write
-  packages: read
+
+env:
+  GITLEAKS_VERSION: '8.30.1'
+  TRIVY_VERSION: '0.69.3'
 
 jobs:
   security-scan:
@@ -26,69 +29,129 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Security Scanner
-        id: scan
-        uses: cloudon-one/git-security-scanner-public@v3
+      - name: Checkout scanner config
+        uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          fail_on_critical: true
-          scan_type: all
-          upload_sarif: false
-          create_pr_comment: true
+          repository: cloudon-one/git-security-scanner-public
+          ref: v3
+          path: .scanner
+          sparse-checkout: |
+            gitleaks.toml
+            git-audit-script.py
+            run_scans.sh
 
-      - name: Display scan results
-        if: always()
+      - name: Install Gitleaks
         run: |
-          echo "## Security Scan Results"
-          echo "================================"
-          echo "Risk Level: ${{ steps.scan.outputs.risk_level }}"
-          echo "Critical Issues: ${{ steps.scan.outputs.critical_count }}"
-          echo "High Issues: ${{ steps.scan.outputs.high_count }}"
-          echo "Medium Issues: ${{ steps.scan.outputs.medium_count }}"
-          echo "Low Issues: ${{ steps.scan.outputs.low_count }}"
-          echo "Secrets Found: ${{ steps.scan.outputs.secrets_found }}"
-          echo "Vulnerabilities: ${{ steps.scan.outputs.vulnerabilities_found }}"
-          echo "Misconfigurations: ${{ steps.scan.outputs.misconfigurations_found }}"
-          echo "Report URL: ${{ steps.scan.outputs.report_url }}"
-          echo "================================"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          rm gitleaks.tar.gz
+          gitleaks version
 
-      - name: Validate scan outputs
-        if: always()
+      - name: Install Trivy
         run: |
-          RISK="${{ steps.scan.outputs.risk_level }}"
-          if [[ -z "$RISK" || "$RISK" == "" ]]; then
-            echo "::error::Risk level output is empty - scan may have failed"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o trivy.tar.gz
+          tar -xzf trivy.tar.gz trivy
+          sudo mv trivy /usr/local/bin/
+          rm trivy.tar.gz
+          trivy version
+
+      - name: Prepare directories
+        run: mkdir -p /tmp/scan-reports
+
+      - name: Run Gitleaks scan
+        run: |
+          gitleaks detect \
+            --source "${{ github.workspace }}" \
+            --config .scanner/gitleaks.toml \
+            --report-path /tmp/scan-reports/gitleaks-report.json \
+            --report-format json \
+            --exit-code 0
+
+      - name: Run Trivy scan
+        run: |
+          trivy fs \
+            --scanners vuln,misconfig \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --format json \
+            --output /tmp/scan-reports/trivy-fs-report.json \
+            --exit-code 0 \
+            "${{ github.workspace }}"
+
+      - name: Generate consolidated report
+        id: scan
+        run: |
+          python3 .scanner/git-audit-script.py \
+            --reports-dir /tmp/scan-reports \
+            --repo-path "${{ github.workspace }}" \
+            --action generate-summary
+
+          REPORT="/tmp/scan-reports/json/final-security-report.json"
+          if [[ -f "$REPORT" ]]; then
+            RISK_LEVEL=$(jq -r '.executive_summary.risk_level // "UNKNOWN"' "$REPORT")
+            SECRETS=$(jq -r '.executive_summary.gitleaks_secrets_found // 0' "$REPORT")
+            VULNS=$(jq -r '.executive_summary.trivy_vulnerabilities_found // 0' "$REPORT")
+            MISCONFIGS=$(jq -r '.executive_summary.trivy_misconfigurations_found // 0' "$REPORT")
+            TOTAL=$(jq -r '.executive_summary.total_issues // 0' "$REPORT")
+
+            echo "risk_level=${RISK_LEVEL}" >> $GITHUB_OUTPUT
+            echo "secrets_found=${SECRETS}" >> $GITHUB_OUTPUT
+            echo "vulnerabilities_found=${VULNS}" >> $GITHUB_OUTPUT
+            echo "misconfigurations_found=${MISCONFIGS}" >> $GITHUB_OUTPUT
+            echo "total_issues=${TOTAL}" >> $GITHUB_OUTPUT
+
+            echo "## Security Scan Results"
+            echo "================================"
+            echo "Risk Level: ${RISK_LEVEL}"
+            echo "Total Issues: ${TOTAL}"
+            echo "Secrets Found: ${SECRETS}"
+            echo "Vulnerabilities: ${VULNS}"
+            echo "Misconfigurations: ${MISCONFIGS}"
+            echo "================================"
+
+            if [[ "$SECRETS" -gt 0 ]]; then
+              echo "::error::Secrets detected in repository - immediate action required"
+              exit 1
+            fi
+          else
+            echo "::error::Report generation failed"
             exit 1
           fi
-          echo "Risk level: $RISK"
 
-          # Verify report artifacts exist
-          if [[ -d "/tmp/security-scan-results" ]]; then
-            echo "Scan artifacts found:"
-            find /tmp/security-scan-results -type f | sort
+      - name: Validate reports
+        if: always() && steps.scan.outputs.risk_level != ''
+        run: |
+          echo "Validating report artifacts..."
+          REPORT="/tmp/scan-reports/json/final-security-report.json"
+
+          # Validate JSON structure
+          jq -e '.metadata.owner' "$REPORT" > /dev/null
+          jq -e '.executive_summary.risk_level' "$REPORT" > /dev/null
+          jq -e '.recommendations' "$REPORT" > /dev/null
+          jq -e '.scan_details' "$REPORT" > /dev/null
+          echo "[PASS] JSON report structure valid"
+
+          # Validate HTML report
+          HTML="/tmp/scan-reports/html/final-security-report.html"
+          if [[ -f "$HTML" ]]; then
+            SIZE=$(wc -c < "$HTML")
+            echo "[PASS] HTML report: ${SIZE} bytes"
+            grep -q '<!DOCTYPE html>' "$HTML" && echo "[PASS] HTML DOCTYPE present"
+            grep -q 'Executive Summary' "$HTML" && echo "[PASS] Executive Summary section present"
+            grep -q 'Recommendations' "$HTML" && echo "[PASS] Recommendations section present"
           else
-            echo "::warning::No scan artifacts directory found"
+            echo "::error::HTML report not generated"
+            exit 1
           fi
 
-          # Validate JSON report if present
-          if [[ -f "/tmp/security-scan-results/json/final-security-report.json" ]]; then
-            echo "Validating JSON report structure..."
-            jq -e '.metadata.owner' /tmp/security-scan-results/json/final-security-report.json > /dev/null
-            jq -e '.executive_summary.risk_level' /tmp/security-scan-results/json/final-security-report.json > /dev/null
-            jq -e '.executive_summary.total_issues' /tmp/security-scan-results/json/final-security-report.json > /dev/null
-            jq -e '.recommendations' /tmp/security-scan-results/json/final-security-report.json > /dev/null
-            echo "JSON report structure: VALID"
-          fi
-
-          # Validate HTML report if present
-          if [[ -f "/tmp/security-scan-results/html/final-security-report.html" ]]; then
-            echo "HTML report exists: $(wc -c < /tmp/security-scan-results/html/final-security-report.html) bytes"
-          fi
+          echo "All validations passed"
 
       - name: Upload scan artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-results-${{ github.run_number }}
-          path: /tmp/security-scan-results/
+          path: /tmp/scan-reports/
           retention-days: 30
