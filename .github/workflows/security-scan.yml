@@ -1,0 +1,94 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Security Scanner
+        id: scan
+        uses: cloudon-one/git-security-scanner-public@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_critical: true
+          scan_type: all
+          upload_sarif: false
+          create_pr_comment: true
+
+      - name: Display scan results
+        if: always()
+        run: |
+          echo "## Security Scan Results"
+          echo "================================"
+          echo "Risk Level: ${{ steps.scan.outputs.risk_level }}"
+          echo "Critical Issues: ${{ steps.scan.outputs.critical_count }}"
+          echo "High Issues: ${{ steps.scan.outputs.high_count }}"
+          echo "Medium Issues: ${{ steps.scan.outputs.medium_count }}"
+          echo "Low Issues: ${{ steps.scan.outputs.low_count }}"
+          echo "Secrets Found: ${{ steps.scan.outputs.secrets_found }}"
+          echo "Vulnerabilities: ${{ steps.scan.outputs.vulnerabilities_found }}"
+          echo "Misconfigurations: ${{ steps.scan.outputs.misconfigurations_found }}"
+          echo "Report URL: ${{ steps.scan.outputs.report_url }}"
+          echo "================================"
+
+      - name: Validate scan outputs
+        if: always()
+        run: |
+          RISK="${{ steps.scan.outputs.risk_level }}"
+          if [[ -z "$RISK" || "$RISK" == "" ]]; then
+            echo "::error::Risk level output is empty - scan may have failed"
+            exit 1
+          fi
+          echo "Risk level: $RISK"
+
+          # Verify report artifacts exist
+          if [[ -d "/tmp/security-scan-results" ]]; then
+            echo "Scan artifacts found:"
+            find /tmp/security-scan-results -type f | sort
+          else
+            echo "::warning::No scan artifacts directory found"
+          fi
+
+          # Validate JSON report if present
+          if [[ -f "/tmp/security-scan-results/json/final-security-report.json" ]]; then
+            echo "Validating JSON report structure..."
+            jq -e '.metadata.owner' /tmp/security-scan-results/json/final-security-report.json > /dev/null
+            jq -e '.executive_summary.risk_level' /tmp/security-scan-results/json/final-security-report.json > /dev/null
+            jq -e '.executive_summary.total_issues' /tmp/security-scan-results/json/final-security-report.json > /dev/null
+            jq -e '.recommendations' /tmp/security-scan-results/json/final-security-report.json > /dev/null
+            echo "JSON report structure: VALID"
+          fi
+
+          # Validate HTML report if present
+          if [[ -f "/tmp/security-scan-results/html/final-security-report.html" ]]; then
+            echo "HTML report exists: $(wc -c < /tmp/security-scan-results/html/final-security-report.html) bytes"
+          fi
+
+      - name: Upload scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results-${{ github.run_number }}
+          path: /tmp/security-scan-results/
+          retention-days: 30
